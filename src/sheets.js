@@ -1,45 +1,30 @@
-const { google } = require('googleapis');
-const path = require('path');
-require('dotenv').config();
+// src/sheets.js
+const { GoogleSpreadsheet } = require('google-spreadsheet');
+const creds = require('../credentials/credentials.json');
 
-const auth = new google.auth.GoogleAuth({
-  keyFile: path.join(__dirname, '../credentials/sheets_credentials.json'),
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+const SHEET_ID = process.env.SHEET_ID;
 
-async function getAccounts() {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
-
-  const range = '計測アカウント!A2:D';
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.SHEET_ID,
-    range,
-  });
-
-  const rows = res.data.values || [];
-  return rows
-    .filter(r => r[0] && r[2] && r[3])
-    .map(r => ({
-      url: r[0],
-      username: r[2],
-      password: r[3],
-    }));
+async function getSheet(doc, name) {
+  await doc.loadInfo();
+  return doc.sheetsByTitle[name];
 }
 
-async function appendResult(dataRows) {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
+async function getSheetRows(sheetName) {
+  const doc = new GoogleSpreadsheet(SHEET_ID);
+  await doc.useServiceAccountAuth(creds);
+  const sheet = await getSheet(doc, sheetName);
+  return await sheet.getRows().then(rows => rows.map(r => Object.values(r._rawData)));
+}
 
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.SHEET_ID,
-    range: 'データ!A:C',
-    valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
-    requestBody: {
-      values: dataRows,
-    },
+async function appendDataRow(sheetName, row) {
+  const doc = new GoogleSpreadsheet(SHEET_ID);
+  await doc.useServiceAccountAuth(creds);
+  const sheet = await getSheet(doc, sheetName);
+  await sheet.addRow({
+    A: row[0], // 日付
+    B: row[1], // URL
+    C: row[2], // 再生回数
   });
 }
 
-module.exports = { getAccounts, appendResult };
+module.exports = { getSheetRows, appendDataRow };
