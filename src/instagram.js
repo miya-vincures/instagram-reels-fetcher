@@ -1,32 +1,58 @@
+// src/instagram.js
 const { chromium } = require('playwright');
+const { getSheetRows, appendDataRow } = require('./sheets');
 
-async function fetchReelViewCount(url, username, password) {
-  const browser = await chromium.launch({
-    headless: process.env.USE_HEADLESS !== 'false' // falseならGUI表示
-  });
-  const context = await browser.newContext();
-  const page = await context.newPage();
+async function runInstagramReelsFetcher() {
+  const accounts = await getSheetRows('計測アカウント');
+  const today = new Date();
+  today.setDate(today.getDate() - 1);
+  const dateStr = today.toISOString().slice(0, 10); // yyyy-mm-dd
 
-  try {
-    await page.goto('https://www.instagram.com/accounts/login/');
-    await page.waitForSelector('input[name="username"]');
-    await page.fill('input[name="username"]', username);
-    await page.fill('input[name="password"]', password);
-    await page.click('button[type="submit"]');
-    await page.waitForNavigation({ waitUntil: 'networkidle' });
+  for (const row of accounts) {
+    const reelUrl = row[0];
+    const username = row[2];
+    const password = row[3];
 
-    await page.goto(url, { waitUntil: 'networkidle' });
-    await page.waitForTimeout(2000);
+    if (!reelUrl || !username || !password) continue;
 
-    const countText = await page.textContent('text=/閲覧|再生/');
-    const numeric = countText?.match(/\\d+(,\\d{3})*/)?.[0]?.replace(/,/g, '');
-    return numeric ? parseInt(numeric, 10) : null;
-  } catch (e) {
-    console.error(`❌ fetch error: ${e.message}`);
-    return null;
-  } finally {
-    await browser.close();
+    console.log(`🔐 ${username} でログイン処理開始`);
+
+    const browser = await chromium.launch({ headless: false });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    try {
+      // ログインページへ移動
+      await page.goto('https://www.instagram.com/accounts/login/', { waitUntil: 'networkidle' });
+
+      await page.fill('input[name="username"]', username);
+      await page.fill('input[name="password"]', password);
+      await page.click('button[type="submit"]');
+      await page.waitForNavigation({ waitUntil: 'networkidle' });
+
+      // リールを開く
+      await page.goto(reelUrl, { waitUntil: 'networkidle' });
+
+      // インサイトを開く（3点メニュー → インサイト表示）
+      await page.click('svg[aria-label="More options"]');
+      await page.waitForTimeout(1000);
+      await page.click('text=View Insights');
+
+      // インプレッションを抽出
+      await page.waitForSelector('text=Plays');
+      const viewsText = await page.textContent('text=Plays >> xpath=..');
+      const views = viewsText.match(/\d[\d,]*/)?.[0]?.replace(/,/g, '');
+
+      console.log(`✅ ${reelUrl} の再生回数: ${views}`);
+
+      // データ記録
+      await appendDataRow('データ', [dateStr, reelUrl, Number(views)]);
+    } catch (err) {
+      console.error(`❌ ${username} の処理に失敗:`, err.message);
+    } finally {
+      await browser.close();
+    }
   }
 }
 
-module.exports = { fetchReelViewCount };
+module.exports = { runInstagramReelsFetcher };
