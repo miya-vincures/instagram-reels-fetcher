@@ -1,0 +1,36 @@
+name: Fetch Instagram Reel Views
+
+on:
+  schedule:
+    - cron: '0 23 * * *'  # JST 8:00（UTCで記述）
+  workflow_dispatch:      # 手動でも実行できる
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    env:
+      SHEET_ID: ${{ secrets.SHEET_ID }}
+      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      USE_HEADLESS: true  # false にするとGUI起動（BAN回避用）
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Setup Google credentials file
+        run: |
+          mkdir -p credentials
+          echo "$GOOGLE_CREDENTIALS" > credentials/sheets_credentials.json
+
+      - name: Run script
+        run: node src/index.js
+
+
